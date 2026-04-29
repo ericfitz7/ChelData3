@@ -3,24 +3,31 @@
 <head>
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width,initial-scale=1" />
-  <title>Parallel Earth Digital Twin</title>
+  <title>Interactive 3D Earth Explorer</title>
   <link rel="stylesheet" href="https://unpkg.com/maplibre-gl@4.7.1/dist/maplibre-gl.css" />
   <style>
-    html,body,#map{margin:0;height:100%;width:100%} body{background:#020611;color:#fff;font-family:system-ui}
-    .panel{position:absolute;top:12px;left:12px;z-index:10;background:rgba(0,0,0,.55);padding:10px 12px;border-radius:10px}
-    .panel button{margin:4px 6px 0 0}
-    .badge{position:absolute;left:12px;bottom:12px;z-index:10;background:rgba(0,0,0,.55);padding:6px 8px;border-radius:8px;font-size:12px}
+    html,body,#map{margin:0;height:100%;width:100%}
+    body{font-family:Inter,system-ui,sans-serif;background:#020611;color:#fff;overflow:hidden}
+    .panel{position:absolute;top:14px;left:14px;z-index:20;max-width:360px;background:rgba(5,10,24,.65);backdrop-filter:blur(8px);padding:12px 14px;border-radius:12px;border:1px solid rgba(255,255,255,.18)}
+    .panel h1{margin:0 0 6px;font-size:16px}
+    .panel p{margin:0;font-size:12px;opacity:.9;line-height:1.4}
+    .controls{margin-top:10px;display:flex;gap:8px;flex-wrap:wrap}
+    button{padding:7px 11px;border-radius:999px;border:1px solid rgba(255,255,255,.25);background:rgba(255,255,255,.12);color:#fff;cursor:pointer}
+    .badge{position:absolute;left:14px;bottom:14px;z-index:20;background:rgba(0,0,0,.55);padding:7px 9px;border-radius:8px;font-size:12px}
   </style>
 </head>
 <body>
 <div id="map"></div>
 <div class="panel">
-  <strong>Parallel-Earth Digital Twin</strong><br/>
-  <button id="toSpace">Outer Space</button>
-  <button id="toCity">Street-Scale</button>
-  <button id="toggleSpin">Toggle Orbit</button>
+  <h1>3D Earth Explorer</h1>
+  <p>Zoom smoothly from orbital scale to street-level context. Satellite imagery, terrain and 3D buildings stream progressively for fast loading.</p>
+  <div class="controls">
+    <button id="toOrbit">Orbit View</button>
+    <button id="toStreet">Street View</button>
+    <button id="toggleSpin">Toggle Rotation</button>
+  </div>
 </div>
-<div class="badge" id="statusBadge">Loading globe…</div>
+<div class="badge" id="statusBadge">Loading Earth…</div>
 
 <script src="https://unpkg.com/maplibre-gl@4.7.1/dist/maplibre-gl.js"></script>
 <script>
@@ -30,46 +37,54 @@ const map = new maplibregl.Map({
     version:8,
     projection:{type:'globe'},
     sources:{
-      esri_sat:{type:'raster',tiles:['https://services.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}'],tileSize:256,maxzoom:19},
-      terrain_rgb:{type:'raster-dem',tiles:['https://s3.amazonaws.com/elevation-tiles-prod/terrarium/{z}/{x}/{y}.png'],tileSize:256,encoding:'terrarium',maxzoom:13},
-      osm_vector:{type:'vector',tiles:['https://demotiles.maplibre.org/tiles/{z}/{x}/{y}.pbf'],minzoom:0,maxzoom:14}
+      esri_sat:{type:'raster',tiles:['https://services.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}'],tileSize:256,maxzoom:19,attribution:'© Esri'},
+      esri_labels:{type:'raster',tiles:['https://services.arcgisonline.com/ArcGIS/rest/services/Reference/World_Boundaries_and_Places/MapServer/tile/{z}/{y}/{x}'],tileSize:256,maxzoom:19,attribution:'© Esri'},
+      terrain_rgb:{type:'raster-dem',tiles:['https://s3.amazonaws.com/elevation-tiles-prod/terrarium/{z}/{x}/{y}.png'],tileSize:256,encoding:'terrarium',maxzoom:13,attribution:'Elevation tiles'},
+      osm_vector:{type:'vector',tiles:['https://demotiles.maplibre.org/tiles/{z}/{x}/{y}.pbf'],minzoom:0,maxzoom:14,attribution:'© OpenStreetMap contributors'},
+      osm_streets:{type:'raster',tiles:['https://tile.openstreetmap.org/{z}/{x}/{y}.png'],tileSize:256,maxzoom:19,attribution:'© OpenStreetMap'}
     },
     layers:[
       {id:'satellite',type:'raster',source:'esri_sat'},
-      {id:'hills',type:'hillshade',source:'terrain_rgb',paint:{'hillshade-exaggeration':0.4}}
+      {id:'hills',type:'hillshade',source:'terrain_rgb',paint:{'hillshade-exaggeration':0.45}},
+      {id:'streets-overlay',type:'raster',source:'osm_streets',paint:{'raster-opacity':['interpolate',['linear'],['zoom'],12,0,14.5,0.2,17,0.55]}},
+      {id:'place-labels',type:'raster',source:'esri_labels',paint:{'raster-opacity':['interpolate',['linear'],['zoom'],1,0.85,8,0.7,14,0.35]}}
     ],
-    terrain:{source:'terrain_rgb',exaggeration:1.2}
+    terrain:{source:'terrain_rgb',exaggeration:1.15}
   },
-  center:[0,22],zoom:1.65,pitch:40,bearing:-20,antialias:true,maxPitch:85,minZoom:0.8,maxZoom:18.5
+  center:[0,18],zoom:1.1,pitch:35,bearing:-18,antialias:true,maxPitch:85,minZoom:0,maxZoom:20
 });
 map.addControl(new maplibregl.NavigationControl({visualizePitch:true}),'top-right');
 
-let spinning=true, userInteracting=false;
-function spinGlobe(){ if(!spinning||userInteracting) return; if(map.getZoom()<5){const c=map.getCenter(); c.lng-=0.03; map.easeTo({center:c,duration:60,easing:n=>n});} requestAnimationFrame(spinGlobe); }
+let spinning=true,userInteracting=false;
+function spin(){if(!spinning||userInteracting)return;if(map.getZoom()<4.5){const c=map.getCenter();c.lng-=0.028;map.easeTo({center:c,duration:80,easing:n=>n});}requestAnimationFrame(spin);}
 
 map.on('load',()=>{
-  map.setFog({color:'rgba(160,192,255,.55)','high-color':'rgba(42,66,120,.34)','horizon-blend':0.2,'space-color':'rgba(2,8,20,1)','star-intensity':0.35});
-  map.addLayer({id:'3d-buildings',type:'fill-extrusion',source:'osm_vector','source-layer':'building',minzoom:14,paint:{
-    'fill-extrusion-color':['interpolate',['linear'],['get','render_height'],0,'#95b7ff',300,'#c7dcff'],
+  map.setFog({color:'rgba(168,197,255,.58)','high-color':'rgba(55,88,145,.4)','horizon-blend':0.2,'space-color':'rgba(3,8,19,1)','star-intensity':0.35});
+
+  map.addLayer({id:'3d-buildings',type:'fill-extrusion',source:'osm_vector','source-layer':'building',minzoom:13.5,paint:{
+    'fill-extrusion-color':['interpolate',['linear'],['get','render_height'],0,'#8ea4c8',120,'#c9d6e7',350,'#f0f4ff'],
     'fill-extrusion-height':['coalesce',['get','render_height'],8],
     'fill-extrusion-base':['coalesce',['get','render_min_height'],0],
-    'fill-extrusion-opacity':0.83,
+    'fill-extrusion-opacity':['interpolate',['linear'],['zoom'],13.5,0.0,14.2,0.8],
     'fill-extrusion-vertical-gradient':true
   }});
-  map.addLayer({id:'street-lines',type:'line',source:'osm_vector','source-layer':'transportation',minzoom:11,paint:{
-    'line-color':'rgba(255,255,255,.44)','line-width':['interpolate',['linear'],['zoom'],11,0.3,18,4]
+
+  map.addLayer({id:'roads-3d-context',type:'line',source:'osm_vector','source-layer':'transportation',minzoom:11,paint:{
+    'line-color':'rgba(255,255,255,.45)',
+    'line-width':['interpolate',['linear'],['zoom'],11,0.4,18,4.6]
   }});
-  document.getElementById('statusBadge').textContent='Loaded ✔ Drag to explore';
-  spinGlobe();
+
+  document.getElementById('statusBadge').textContent='Loaded ✔ Explore Earth in 3D';
+  spin();
 });
-map.on('error',(e)=>{document.getElementById('statusBadge').textContent='Load issue: '+((e&&e.error&&e.error.message)||'unknown')});
 
-['dragstart','rotatestart','pitchstart','zoomstart'].forEach(evt=>map.on(evt,()=>userInteracting=true));
-['dragend','rotateend','pitchend','zoomend'].forEach(evt=>map.on(evt,()=>{userInteracting=false; if(spinning) requestAnimationFrame(spinGlobe)}));
+map.on('error',e=>{document.getElementById('statusBadge').textContent='Load issue: '+((e&&e.error&&e.error.message)||'unknown');console.error(e);});
+['dragstart','rotatestart','pitchstart','zoomstart'].forEach(ev=>map.on(ev,()=>userInteracting=true));
+['dragend','rotateend','pitchend','zoomend'].forEach(ev=>map.on(ev,()=>{userInteracting=false;if(spinning)requestAnimationFrame(spin);}));
 
-document.getElementById('toggleSpin').onclick=()=>{spinning=!spinning; if(spinning) requestAnimationFrame(spinGlobe)};
-document.getElementById('toSpace').onclick=()=>map.easeTo({center:[0,20],zoom:1.5,pitch:40,bearing:-20,duration:2500});
-document.getElementById('toCity').onclick=()=>map.easeTo({center:[-73.9851,40.7589],zoom:16.8,pitch:74,bearing:18,duration:3500});
+document.getElementById('toggleSpin').onclick=()=>{spinning=!spinning;if(spinning)requestAnimationFrame(spin)};
+document.getElementById('toOrbit').onclick=()=>map.easeTo({center:[-25,14],zoom:1.0,pitch:28,bearing:-40,duration:2800});
+document.getElementById('toStreet').onclick=()=>map.easeTo({center:[2.2945,48.8584],zoom:17.2,pitch:76,bearing:32,duration:3600});
 </script>
 </body>
 </html>
