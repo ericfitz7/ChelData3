@@ -1,0 +1,75 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <title>Parallel Earth Digital Twin</title>
+  <link rel="stylesheet" href="https://unpkg.com/maplibre-gl@4.7.1/dist/maplibre-gl.css" />
+  <style>
+    html,body,#map{margin:0;height:100%;width:100%} body{background:#020611;color:#fff;font-family:system-ui}
+    .panel{position:absolute;top:12px;left:12px;z-index:10;background:rgba(0,0,0,.55);padding:10px 12px;border-radius:10px}
+    .panel button{margin:4px 6px 0 0}
+    .badge{position:absolute;left:12px;bottom:12px;z-index:10;background:rgba(0,0,0,.55);padding:6px 8px;border-radius:8px;font-size:12px}
+  </style>
+</head>
+<body>
+<div id="map"></div>
+<div class="panel">
+  <strong>Parallel-Earth Digital Twin</strong><br/>
+  <button id="toSpace">Outer Space</button>
+  <button id="toCity">Street-Scale</button>
+  <button id="toggleSpin">Toggle Orbit</button>
+</div>
+<div class="badge" id="statusBadge">Loading globe…</div>
+
+<script src="https://unpkg.com/maplibre-gl@4.7.1/dist/maplibre-gl.js"></script>
+<script>
+const map = new maplibregl.Map({
+  container:'map',
+  style:{
+    version:8,
+    projection:{type:'globe'},
+    sources:{
+      esri_sat:{type:'raster',tiles:['https://services.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}'],tileSize:256,maxzoom:19},
+      terrain_rgb:{type:'raster-dem',tiles:['https://s3.amazonaws.com/elevation-tiles-prod/terrarium/{z}/{x}/{y}.png'],tileSize:256,encoding:'terrarium',maxzoom:13},
+      osm_vector:{type:'vector',tiles:['https://demotiles.maplibre.org/tiles/{z}/{x}/{y}.pbf'],minzoom:0,maxzoom:14}
+    },
+    layers:[
+      {id:'satellite',type:'raster',source:'esri_sat'},
+      {id:'hills',type:'hillshade',source:'terrain_rgb',paint:{'hillshade-exaggeration':0.4}}
+    ],
+    terrain:{source:'terrain_rgb',exaggeration:1.2}
+  },
+  center:[0,22],zoom:1.65,pitch:40,bearing:-20,antialias:true,maxPitch:85,minZoom:0.8,maxZoom:18.5
+});
+map.addControl(new maplibregl.NavigationControl({visualizePitch:true}),'top-right');
+
+let spinning=true, userInteracting=false;
+function spinGlobe(){ if(!spinning||userInteracting) return; if(map.getZoom()<5){const c=map.getCenter(); c.lng-=0.03; map.easeTo({center:c,duration:60,easing:n=>n});} requestAnimationFrame(spinGlobe); }
+
+map.on('load',()=>{
+  map.setFog({color:'rgba(160,192,255,.55)','high-color':'rgba(42,66,120,.34)','horizon-blend':0.2,'space-color':'rgba(2,8,20,1)','star-intensity':0.35});
+  map.addLayer({id:'3d-buildings',type:'fill-extrusion',source:'osm_vector','source-layer':'building',minzoom:14,paint:{
+    'fill-extrusion-color':['interpolate',['linear'],['get','render_height'],0,'#95b7ff',300,'#c7dcff'],
+    'fill-extrusion-height':['coalesce',['get','render_height'],8],
+    'fill-extrusion-base':['coalesce',['get','render_min_height'],0],
+    'fill-extrusion-opacity':0.83,
+    'fill-extrusion-vertical-gradient':true
+  }});
+  map.addLayer({id:'street-lines',type:'line',source:'osm_vector','source-layer':'transportation',minzoom:11,paint:{
+    'line-color':'rgba(255,255,255,.44)','line-width':['interpolate',['linear'],['zoom'],11,0.3,18,4]
+  }});
+  document.getElementById('statusBadge').textContent='Loaded ✔ Drag to explore';
+  spinGlobe();
+});
+map.on('error',(e)=>{document.getElementById('statusBadge').textContent='Load issue: '+((e&&e.error&&e.error.message)||'unknown')});
+
+['dragstart','rotatestart','pitchstart','zoomstart'].forEach(evt=>map.on(evt,()=>userInteracting=true));
+['dragend','rotateend','pitchend','zoomend'].forEach(evt=>map.on(evt,()=>{userInteracting=false; if(spinning) requestAnimationFrame(spinGlobe)}));
+
+document.getElementById('toggleSpin').onclick=()=>{spinning=!spinning; if(spinning) requestAnimationFrame(spinGlobe)};
+document.getElementById('toSpace').onclick=()=>map.easeTo({center:[0,20],zoom:1.5,pitch:40,bearing:-20,duration:2500});
+document.getElementById('toCity').onclick=()=>map.easeTo({center:[-73.9851,40.7589],zoom:16.8,pitch:74,bearing:18,duration:3500});
+</script>
+</body>
+</html>
